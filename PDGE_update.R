@@ -39,7 +39,7 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, sigmac=3, 
   #local_sim = imp_res$local_sim
   imp_X = imp_res$imp_X
   droprate = imp_res$droprate
-  mean_drop = apply(droprate, 2, mean)
+  meandrop = apply(droprate, 2, mean)
   # L\M\H means high\middle\low droprate
   # 0.6\0.9\1 percent of drop
   Lid = which(meandrop < 0.4)
@@ -50,7 +50,6 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, sigmac=3, 
   
   # divide gene
   split_data = list()
-  browser()
   split_data[[1]] = imp_X[, Lid]
   split_data[[2]] = imp_X[, Mid]
   split_data[[3]] = droprate[, Hid]
@@ -118,9 +117,9 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, sigmac=3, 
   #neighbors = clust_res$neighbors
   
   
-  res = list(cluster=cluster, guide_cluster = guide_cluster, lambda1 = lambda1, lambda2 = lambda2,
+  res = list(cluster=cluster, imp_X = imp_X, guide_cluster = guide_cluster, lambda1 = lambda1, lambda2 = lambda2,
              droprate=droprate, J_DR = J_DR, J_HE = J_HE, J_LE = J_LE, J = res_J, nmi = nmi,
-             W = W, V = V, H = H, Dc = Dc, Dg = Dg, S_set = local_sim, dw = dw, weight = alpha, imp_X = imp_X)  
+             W = W, V = V, H = H, Dc = Dc, Dg = Dg, S = S, dw = dw, weight = alpha)  
   
   #  res = list(cluster=cluster, neighbors=neighbors, 
   #             imp_X=imp_X, droprate=droprate, local_sim = local_sim, 

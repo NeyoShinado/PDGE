@@ -2,10 +2,10 @@ setwd("E:/Project/Paper_debug/Clustering algorithm/MGGE/")
 
 
 source("npc_cal.R")
-source("proj_sim.R")
+#source("proj_sim.R")
 source("constructW.R")
 source("PDGE_update.R")
-source("NormalizeUV.R")
+#source("NormalizeUV.R")
 source("data_normalize.R")
 source("imputing_update.R")
 source("clustering_update.R")
