@@ -13,17 +13,37 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
   J_LE = NULL
   par1 = NULL
   par2 = NULL
-  nmi = matrix(0, 1, 3)
-  colnames(nmi) = c("nmiH", "nmiW_L", "nmiW_sp")
+  #par_sigma = NULL
+  #par_beta = NULL
+  nmi = c()
+  #nmi = matrix(0, iteration, 3)
+  # eigen val
   Xe = c(sqrt(eigen(X[[1]] %*% t(X[[1]]))$values)[1], sqrt(eigen(X[[2]] %*% t(X[[2]]))$values)[1], 
          sqrt(eigen(X[[3]] %*% t(X[[3]]))$values)[1])
+  #Xn1 = sapply(1:3, function(i){
+  #  res = norm(X[[i]], '1')
+  #  return(res)
+  #})
+  
   Se = eigen(S)$values[1]
+  # var init
+  #E = W
+  #theta = matrix(0, N, npc)
+  #sigma = 5e+1
+  #beta = 1    #* par of sparse norm
   Ds = diag(colSums(S))
   L = Ds - S
   alpha = matrix(1/3, iteration, 3)
   Lid = drop_id[1]
   Mid = drop_id[2]
   Hid = drop_id[3]
+  ignore = sapply(1:M, function(i){
+    if(length(drop_id[[i]]) < 50){
+      return(i)
+    }else{
+      return(NA)
+    }
+  })
   #drop_H = droprate[, Hid]
   rm(droprate)
   
@@ -39,14 +59,27 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
     sec_ord_g = lambda1 * LH %*% W + W %*% pr + alpha[iter, 2] * Dc^2 %*% W %*% V[[2]] %*% Dg^2 %*% t(V[[2]])
     nW = alpha[iter, 1] * X[[1]] %*% t(V[[1]]) + alpha[iter, 2] * Dc^2 %*% X[[2]] %*% Dg^2 %*% t(V[[2]]) + 
       alpha[iter, 3] * X[[3]] %*% t(V[[3]])
-    W = W * ( nW/ sec_ord_g)
+    W = W * (nW / sec_ord_g)
+    #W = W * ((nW + sigma*E + theta) / (sec_ord_g + sigma*W))
     rm(pr, nW)
+    
+    # 5\ unitize
+    #norms = rowSums(W)
+    #norms[norms == 0] = 1e-10
+    #W = W / matrix(norms, N, dim(W)[2])
+    
     #g_W = -Dc^2 %*% X %*% t(V) + sec_ord_g#- 0.36s
     ## the N*k * N*k Hessian matrix is corresponse to Wij which expand by col
     # Hessian = kronecker(Matrix(diag(1, npc), sparse=TRUE), Matrix(lambda2 * LH, sparse=TRUE)) + 
     #   kronecker(V %*% t(V), Matrix(Dc^2, sparse=TRUE))  #- sparse 0.66s
     #      Hessian = Matrix(Hessian, sparse=TRUE)   #- 10s
-    # sec_ord_g = Hessian %*% matrix(W, ncol=1)   
+    # sec_ord_g = Hessian %*% matrix(W, ncol=1)
+    
+    ##* sparse regularize
+    #cat("### updating E and theta...\n")
+    #E = soft(W - theta/sigma, beta/sigma)
+    #sigma = 1.618*sigma
+    #theta = theta + sigma * (E - W)
     
     
     cat("### updating V...\n")
@@ -67,12 +100,12 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
     d = matrix(d, nrow=N, ncol=N)
     d = d + t(d) - 2*W %*% t(W)
     
-    #- H = eigen(0.5*lambda1 * d + lambda2 * S)$vectors[, (N-K+1):N]
-    H = H * ((lambda2 * S %*% H) / ((lambda2 * Ds + lambda1 / 2 * d) %*% H))
+    H = eigen(0.5*lambda1 * d + lambda2 * L)$vectors[, (N-K+1):N]
+    #H = H * ((lambda2 * S %*% H) / ((lambda2 * Ds + lambda1 / 2 * d) %*% H))
     
-    norms = rowSums(H)    #* 5\row based H normalize
-    norms[norms == 0] = 1e-10
-    H = H / matrix(norms, N, K)
+    #norms = rowSums(H)    #* 5\row based H normalize
+    #norms[norms == 0] = 1e-10
+    #H = H / matrix(norms, N, K)
     
     
     cat('### updating alpha...\n')
@@ -86,32 +119,17 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
       return(cost)
     }))
     
+    # veiw check
     alpha[iter, ] = t(sapply(1:M, function(i){
-      res = 0.5 / sqrt(J_DR[iter, i])
-      return(res)
-    }))
-    alpha[iter, ] = alpha[iter, ] / sum(alpha[iter, ])
-    
-    # integration update
-    if(FALSE){
-      cat('### updating S...\n')
-      d_H = matrix(rowSums(H^2), N, N) + t(matrix(rowSums(H^2), N, N)) + 2* H %*% t(H)
-      A = lapply(1:length(local_sim), function(i){
-        local_sim[[i]] * alpha[i]
-      })
-      A = Reduce('+', A)
-      S = t(sapply(1:N, function(i){
-        res = rep(0, N)
-        id = which(A[i, ] > 0)
-        #* 10\update L with H
-        ad = (A[i, id]) / sum(alpha)   #* not H constraint
-        #ad = (A[i, id] - 0.25*lambda2*d_H[i, id]) / sum(alpha)
-        res[id] = proj_sim(ad)
+      if(i %in% ignore){
+        return(0)
+      }else{
+        res = 0.5 / sqrt(J_DR[iter, i])
         return(res)
-      }))
-      S = (S + t(S)) / 2
-      
-    }
+      }
+    }))
+    # 4\unitize weight
+    #alpha[iter, ] = alpha[iter, ] / sum(alpha[iter, ])
     
     
     #** 6\update parameters    option one
@@ -122,11 +140,17 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
       lambda1 = sum(alpha[iter, ] * Xe) / sum(He + alpha[iter, ] * Ve)
       
       de = eigen(d)$values[1]
-      lambda2 = (lambda1 * de) / (2 * Se)
-      #par1[iter] = lambda1
-      #par2[iter] = lambda2
-      par1[(iter-9):iter] = lambda1
-      par2[(iter-9):iter] = lambda2
+      lambda2 = (2 * Se) / (lambda1 * de)
+      par1[iter] = lambda1
+      par2[iter] = lambda2
+      
+      #* sparse norm
+      #beta = sum(alpha[iter, ] * Xn1) / sum(alpha[iter, ] * Ve)
+      #par_beta[iter] = beta
+      #par_sigma[iter] = sigma
+      
+      #par1[(iter-9):iter] = lambda1
+      #par2[(iter-9):iter] = lambda2
     }
     
     
@@ -147,9 +171,9 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
           which.max(H[i, ])
         })
         
-        res = list(W = W, V = V, H = H, cluster = cluster,
-                   J = J_set, J_DR = J_DR, J_HE = J_HE, J_LE = J_LE, 
-                   lambda1 = par1, lambda2 = par2, alpha = alpha, S = S)
+        res = list(W = W, V = V, H = H, cluster = cluster, Dc = diag(Dc), Dg = diag(Dg),
+                   J = J_set, J_DR = J_DR, J_HE = J_HE, J_LE = J_LE, nmi = nmi,
+                   lambda1 = par1, lambda2 = par2, alpha = alpha, dw = d)   #* lambda save
         if(res_save){
           saveRDS(res, out_file)
         }
@@ -159,21 +183,25 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
     
     
     # recording nmi
-    #cluster = specc(as.matrix(d), K)@.Data
-    #nmiW_sp = NMI(cluster, gt)
-    nmiW_sp = 0
+    if(FALSE){
+      cluster = specc(as.matrix(d), K)@.Data
+      nmiW_sp = NMI(cluster, gt)
+      
+      F = eigen(d)$vectors
+      F = F[, (N-K):(N-1)]
+      clust = kmeans(F, K)$cluster
+      nmiW_L = NMI(clust, gt)
+      
+      cluster = sapply(1:N, function(i){
+        which.max(H[i, ])
+      })
+      nmiH = NMI(cluster, gt)
+    }
     
-    F = eigen(d)$vectors
-    F = F[, (N-K+1):(N)]
-    clust = kmeans(F, K)$cluster
-    nmiW_L = NMI(clust, gt)
-    
-    cluster = sapply(1:N, function(i){
-      which.max(H[i, ])
-    })
+    cluster = kmeans(H, K, nstart = 25, iter.max = 100)$cluster
     nmiH = NMI(cluster, gt)
-    
-    nmi = rbind(nmi, c(nmiH, nmiW_L, nmiW_sp))
+    nmi = c(nmi, nmiH)
+    #nmi[iter, ] = c(nmiH, nmiW_sp, nmiW_L)
     
   }
   
@@ -185,5 +213,17 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
     saveRDS(res, out_file)
   }
   return(res)
-  
+}
+
+
+soft <- function(x, theta){
+  if(max(theta == 0)){
+    res = x
+    return(x)
+  }else{
+    res = abs(x) - theta
+    res[which(res<0)] = 0
+    res = sign(x) * res
+    return(res)
+  }
 }

@@ -46,7 +46,7 @@ data_normalize <- function(X, N, P, gt, mu_probs=0.4, cv_probs=0.3){
   }
   count_hv = lg_X[, high_var_genes]
 
-  return(list(count_hv=count_hv, gt=gt))
+  return(list(count_hv=count_hv, gt=gt, mu_g = mu[high_var_genes], sd_g = sd[high_var_genes]))
   
 }
 
