@@ -13,8 +13,8 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
   J_LE = NULL
   par1 = NULL
   par2 = NULL
-  #par_sigma = NULL
-  #par_beta = NULL
+  par_sigma = NULL
+  par_beta = NULL
   nmi = c()
   #nmi = matrix(0, iteration, 3)
   # eigen val
@@ -33,12 +33,12 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
   #beta = 1    #* par of sparse norm
   Ds = diag(colSums(S))
   L = Ds - S
-  alpha = matrix(1/3, iteration, 3)
+  alpha = matrix(1/M, iteration, M)
   Lid = drop_id[1]
   Mid = drop_id[2]
   Hid = drop_id[3]
   ignore = sapply(1:M, function(i){
-    if(length(drop_id[[i]]) < 50){
+    if(length(drop_id[[i]]) < npc){
       return(i)
     }else{
       return(NA)
@@ -53,15 +53,16 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
     cat(paste0(strrep("#", round(30*iter/iteration)), " ", 
                100*signif(iter/iteration, digits=2), "%\n"))
     cat("### updating W...\n")
-    #
-    LH = H %*% t(H)
+    SH = H %*% t(H)
+    LH = diag(colSums(SH)) - SH
+    #LH = H %*% t(H)
     pr = alpha[iter, 1] * V[[1]] %*% t(V[[1]]) + alpha[iter, 3] * V[[3]] %*% t(V[[3]])
     sec_ord_g = lambda1 * LH %*% W + W %*% pr + alpha[iter, 2] * Dc^2 %*% W %*% V[[2]] %*% Dg^2 %*% t(V[[2]])
     nW = alpha[iter, 1] * X[[1]] %*% t(V[[1]]) + alpha[iter, 2] * Dc^2 %*% X[[2]] %*% Dg^2 %*% t(V[[2]]) + 
       alpha[iter, 3] * X[[3]] %*% t(V[[3]])
     W = W * (nW / sec_ord_g)
     #W = W * ((nW + sigma*E + theta) / (sec_ord_g + sigma*W))
-    rm(pr, nW)
+    rm(pr, nW, SH)
     
     # 5\ unitize
     #norms = rowSums(W)
@@ -95,17 +96,16 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
     
     
     cat("### updating H...\n")
-    #d = -2 * W %*% t(W)
     d = rowSums(W^2)
     d = matrix(d, nrow=N, ncol=N)
     d = d + t(d) - 2*W %*% t(W)
     
-    H = eigen(0.5*lambda1 * d + lambda2 * L)$vectors[, (N-K+1):N]
-    #H = H * ((lambda2 * S %*% H) / ((lambda2 * Ds + lambda1 / 2 * d) %*% H))
+    #H = eigen(0.5*lambda1 * d + lambda2 * L)$vectors[, (N-K+1):N]
+    H = H * ((lambda2 * S %*% H) / ((lambda2 * Ds + lambda1 / 2 * d) %*% H))
     
-    #norms = rowSums(H)    #* 5\row based H normalize
-    #norms[norms == 0] = 1e-10
-    #H = H / matrix(norms, N, K)
+    norms = rowSums(H)    #* 5\row based H normalize
+    norms[norms == 0] = 1e-10
+    H = H / matrix(norms, N, K)
     
     
     cat('### updating alpha...\n')
@@ -121,12 +121,12 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
     
     # veiw check
     alpha[iter, ] = t(sapply(1:M, function(i){
-      if(i %in% ignore){
-        return(0)
-      }else{
+      #if(i %in% ignore | i %in% c(1, 3)){
+      #  return(0)
+      #}else{
         res = 0.5 / sqrt(J_DR[iter, i])
         return(res)
-      }
+      #}
     }))
     # 4\unitize weight
     #alpha[iter, ] = alpha[iter, ] / sum(alpha[iter, ])
@@ -137,10 +137,10 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
       He = sqrt(eigen(H %*% t(H))$values)[1]
       Ve = c(sqrt((eigen(V[[1]] %*% t(V[[1]]))$values)[1]), sqrt((eigen(V[[2]] %*% t(V[[2]]))$values)[1]),
              sqrt((eigen(V[[3]] %*% t(V[[3]]))$values)[1]))
-      lambda1 = sum(alpha[iter, ] * Xe) / sum(He + alpha[iter, ] * Ve)
+      lambda1 = sum(alpha[iter, ] * Xe) / (He + sum(alpha[iter, ] * Ve))
       
       de = eigen(d)$values[1]
-      lambda2 = (2 * Se) / (lambda1 * de)
+      lambda2 = (lambda1 * de) / (2 * Se)
       par1[iter] = lambda1
       par2[iter] = lambda2
       
@@ -158,7 +158,7 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
     # if verbose
     J_LE[iter] = sum(diag(t(H) %*% L %*% H))
     J_HE[iter] = sum(diag(t(W) %*% LH %*% W))
-    J_set[iter] = alpha[iter, ] * J_DR[iter, ] + lambda1 * J_HE[iter] + lambda2 * J_LE[iter]
+    J_set[iter] = sum(alpha[iter, ] * J_DR[iter, ]) + lambda1 * J_HE[iter] + lambda2 * J_LE[iter]
     cat("### Current cost:", J_set[iter], "\n")
     
     
@@ -198,17 +198,28 @@ clustering_update <- function(X, K, npc, lambda1, lambda2, W=NULL, V=NULL, drop_
       nmiH = NMI(cluster, gt)
     }
     
-    cluster = kmeans(H, K, nstart = 25, iter.max = 100)$cluster
-    nmiH = NMI(cluster, gt)
-    nmi = c(nmi, nmiH)
-    #nmi[iter, ] = c(nmiH, nmiW_sp, nmiW_L)
-    
+    cluster = sapply(1:N, function(i){
+      which.max(H[i, ])
+    })
+    nmiH_max = NMI(cluster, gt)
+    nmi = c(nmi, nmiH_max)
+    tryCatch(
+      {
+        cluster_k = kmeans(H, K, nstart=20, iter.max = 200)$cluster
+        nmiH_kmean = NMI(cluster_k, gt)
+        cat(paste0("## NMI:   nmiH_max: ", nmiH_max, "    nmiH_kmean: ", nmiH_kmean, "\n"))
+        #nmi[iter, ] = c(nmiH_max, nmiH_kmean)
+      }, error=function(e){
+        cat(paste0("## NMI:   nmiH_max: ", nmiH_max, "\n"))
+      }
+    )
+
   }
   
-  
+  browser()
   res = list(W = W, V = V, H = H, cluster = cluster, Dc = diag(Dc), Dg = diag(Dg),
              J = J_set, J_DR = J_DR, J_HE = J_HE, J_LE = J_LE, nmi = nmi,
-             lambda1 = par1, lambda2 = par2, alpha = alpha, dw = d)   #* lambda save
+             lambda1 = par1, lambda2 = par2, beta = par_beta, sigma = par_sigma, alpha = alpha, dw = d)   #* lambda save
   if(res_save){
     saveRDS(res, out_file)
   }
@@ -222,7 +233,7 @@ soft <- function(x, theta){
     return(x)
   }else{
     res = abs(x) - theta
-    res[which(res<0)] = 0
+    res[which(as.matrix(res<0))] = 0
     res = sign(x) * res
     return(res)
   }

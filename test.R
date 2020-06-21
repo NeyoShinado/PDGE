@@ -24,19 +24,22 @@ library(ggplot2)
 
 # dataset info
 datas = c("Biase/Biase.rds", "Deng_GSE45719/mouse_embryo.rds", "Zeisel/Zeisel.rds", 
-          "mouse1/mouse1.rds", "mouse2/mouse2.rds", "human3/human3.rds", "Hrvatin/Hrvatin.rds")
+          "mouse1/mouse1.rds", "mouse2/mouse2.rds", "human3/human3.rds", "Hrvatin/Hrvatin.rds",
+          "human1/human1.rds", "human2/human2.rds", "human4/human4.rds")
 data_path = "E:/Project/dataset/Bioinformatics/scRNA/Selected data/"
-for(i in c(1)){
+for(i in c(4)){
   for(Lmud in c(0.4)){
-    for(Mmud in c(0.65)){
-      for(Hmud in c(0.8)){
+    for(Mmud in c(0.6)){
+      for(Hmud in c(0.85)){
       sigmac = 0.5
       sigmag = 0.5
 
     try({
     X = readRDS(paste0(data_path, datas[i]))
     gt = X$gt
-    X = X$expr
+    X = X$expr     # for Baron dataset
+    #gt = X$cluster
+    #X = t(X@assays@data$rawcounts)
     N = nrow(X)
     P = ncol(X)
     message(paste0("## Loading raw data of ",N , "*", P, " and labels...\n"))
@@ -47,14 +50,6 @@ for(i in c(1)){
     lg_X = data_normalize(X, N, P, gt, mu_probs=0.5, cv_probs=0.2)   #* 0.2 by default with gene select  0.1*round(log10(N))
     gt = lg_X$gt
 
-    map = unique(gt)
-    gt = sapply(1:length(map), function(i){
-      test = rep(0, N)
-      id = which(gt == map[i])
-      test[id] = i
-      return(test)
-    })
-    gt = as.integer(rowSums(gt))
     
     mu_g = lg_X$mu_g
     sd_g = lg_X$sd_g
@@ -69,7 +64,7 @@ for(i in c(1)){
     
     #* construct W & neighbors
     # NN = 5 for 10^2, else 20 for 1o^3
-    res = constructW(lg_X, 5, K)
+    res = constructW(lg_X, 20, K)
     S = res$S
     neighbors = res$neighbors
     rm(res)
@@ -80,7 +75,7 @@ for(i in c(1)){
     
     
     #* 14\ no gene selection
-    if(FALSE){#FALSE){
+    if(FALSE){
       #lg_X = informative_gene_selection(lg_X, delta=0.7)
       data_object = CreateSeuratObject(counts = Matrix(t(lg_X), sparse=TRUE),
                                        project = "MGGE", min.cells = 3)
@@ -107,6 +102,7 @@ for(i in c(1)){
     }
     
     
+    
     ## dimension reduction(npc) calculation
     npc = npc_cal(as.matrix(lg_X), K, var_thre=0.8)
     message("## Caluculated dim reduction npc:", npc, "\n")
@@ -118,12 +114,11 @@ for(i in c(1)){
     files = list.files("./scImpute/", pattern="*.R")
     sapply(paste0("./scImpute/", files), source)
     
-    
+
     # main function
     res <- var_update(lg_X, K, npc, S, neighbors, cluster, gt, mu_g, sd_g, sigmac=sigmac, sigmag=sigmag, lambda1=2, lambda2=2, 
                       iteration=1, clust_iteration=300, imp_iteration=3000, 
                       res_save=FALSE, Lmud=Lmud, Mmud=Mmud, Hmud=Hmud, data_name = strsplit(datas[i], split="/")[[1]][1])
-    
     
     #clust = res$cluster
     #nmi = NMI(clust, gt)
@@ -142,3 +137,5 @@ for(i in c(1)){
 }
 }
 }
+
+

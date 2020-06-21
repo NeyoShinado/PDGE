@@ -3,7 +3,7 @@ library(Matrix)
 library(bignmf)
 
 
-var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g, sigmac=0.5, sigmag=0.5, lambda1=0.1, lambda2=0.1, 
+var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g, rep=1, sigmac=0.5, sigmag=0.5, lambda1=0.1, lambda2=0.1, 
                        thre_J=1e-4, drop_thre=0.5, iteration=1, 
                        clust_iteration=100, imp_iteration=100, 
                        output="result/", res_save=TRUE, Lmud=0.4, Mmud=0.6, Hmud=0.85, data_name){
@@ -17,11 +17,11 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   droprate = 0
   imp_X = 0
   
-  
+
   ### imputing_update
   cat(paste0("## carrying ", imp_iter, "th cluster imputation...\n\n"))
   #*clust = clust_set[[i]]
-  imp_res = imputing_update(log10(10^(lg_X) + 0.01), guide_cluster, neighbors, 
+  imp_res = imputing_update(log10(10^(lg_X) + 0.01), guide_cluster, neighbors, drop_thre = drop_thre, 
                             imp_iteration=imp_iteration, 
                             out_file=paste0(output, "imp_res/", imp_iter, "th_impres.rds"), 
                             res_save=res_save)
@@ -34,7 +34,8 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   droprate = imp_res$droprate
   meandrop = apply(droprate, 2, mean)   # 0 - 0.9  gene meandrop
   
-  if(FALSE){ 
+
+  if(FALSE){
   meandrop = apply(droprate, 1, mean)
   meangene = apply(lg_X, 1, mean)
   id = order(meandrop, decreasing=TRUE)
@@ -49,10 +50,26 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   png(paste0("../MGGE/result/figure/cellmeandrop verus meangene/cell\'s grouped meangene of", 
              data_name, ".png"), width=600, height=600)
   data = data.frame(id = 1:N, gene = meangene[id], class=as.character(gt[id]))
-  p = ggplot(data, aes(x=id, y=gene, color=class)) + geom_point()
+  p = ggplot(data, aes(x=drop, y=gene, color=class)) + geom_point()
   plot(p)
   dev.off()
-}
+  
+  # clust sep
+  map = unique(gt)
+  for(i in 1:length(map)){
+    png(paste0("../MGGE/result/figure/cellmeandrop verus meangene/dropthre/", data_name, "_mean drop_expr of clust_", 
+               map[i], "with drop_thre_", drop_thre, ".png"), width=600, height=600)
+    clust = i
+    clustid = which(gt == map[clust])
+    data = data.frame(index = which(id %in% clustid), gene = meangene[id[which(id %in% clustid)]])
+    p = ggplot(data, aes(x=meandrop[id[index]], y=gene)) + geom_point() + 
+      labs(title=paste0(data_name, "_mean drop_expr of clust_", map[i]), x="meandrop sorted id", y="mean expr") + 
+      scale_x_continuous(limits=c(min(meandrop), max(meandrop))) + scale_y_continuous(limits=c(min(meangene), max(meangene)))
+    plot(p)
+    dev.off()
+  }
+  }
+  
   
   # L\M\H means high\middle\low droprate
   Lid = which(meandrop <= Lmud)
@@ -62,31 +79,38 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   drop_id = list(Lid=Lid, Mid=Mid, Hid=Hid)
   cat(paste0("## split data into three subset\n Lowdrop: ", length(Lid), "\n Middrop: ", length(Mid), "\n Highdrop: ", length(Hid), "\n"))
   
-  
-  # divide gene
   split_data = list()
   split_data[[1]] = imp_X[, Lid]
-  split_data[[2]] = imp_X[, Mid]
+  split_data[[2]] = imp_X[, Mid]   
   split_data[[3]] = droprate[, Hid]
   split_data[[3]][which(split_data[[3]] == 0)] = 1e-10
   
   # 16\gene normalize
-  #split_data = lapply(split_data, function(i){
-  #  gene_norm = sqrt(colSums(i^2))
-  #  i = i / t(matrix(gene_norm, dim(i)[2], N))
-  #  return(i)
-  #})
+  if(FALSE){
+    split_data = lapply(split_data, function(i){
+      gene_norm = sqrt(colSums(i^2))
+      i = i / t(matrix(gene_norm, dim(i)[2], N))
+      return(i)
+    })
+  }
   
   
   #* 12\weighted cell
   Dc = rowSums(droprate)
-  Dg = colSums(droprate)[Mid]
+  Dg = colSums(droprate)
+  Dg = Dg[Mid]      #####
+  #Dg = lapply(drop_id, function(i){
+  #  res = Dg[i]
+  #  return(res)
+  #})
   Dc = Matrix(diag(exp(-sigmac * Dc / P)), sparse=TRUE)
-  Dg = Matrix(diag(exp(-sigmag * Dg / N)), sparse=TRUE)    # scale factor 2 for small dataset and 3 for the big one
-  
+  Dg = Matrix(diag(exp(-sigmag * Dg / N)), sparse=TRUE)
+  #Dg = lapply(Dg, function(i){
+  #  Matrix(diag(exp(-sigmag * i / N)), sparse=TRUE)    # scale factor 2 for small dataset and 3 for the big one
+  #})
   
   # init vars
-  set.seed(1)   #*15\ produce reproductive result
+  set.seed(rep)   #*15\ produce reproductive result
   #H = matrix(runif(dim(lg_X)[1]*K), N, K)
   H = eigen(diag(colSums(S)) - S)$vector
   H = H[, (N-K):(N-1)]
@@ -101,7 +125,6 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   
   ### Clustering update
   cat(paste0("## running ", imp_iter, "th vars update via clustering and imputation...\n"))
-  
   clust_res = clustering_update(split_data, K, npc, lambda1, lambda2, W=W, V=V, drop_id=drop_id,
                                 H=H, Dc=Dc, Dg = Dg, S=S, iteration=clust_iteration,
                                 out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), 
@@ -122,6 +145,8 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   J_DR = clust_res$J_DR
   J_HE = clust_res$J_HE
   J_LE = clust_res$J_LE
+  sigma = clust_res$sigma
+  beta = clust_res$beta
   #neighbors = clust_res$neighbors
   
   cat("# MGGE iteration complete!\n")
@@ -129,9 +154,9 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   message("## Consume", time, "seconds.\n")
   
   res = list(cluster=cluster, imp_X = imp_X, guide_cluster = guide_cluster, lambda1 = lambda1, lambda2 = lambda2,
-             droprate=droprate, J_DR = J_DR, J_HE = J_HE, J_LE = J_LE, J = res_J, nmi = nmi,
+             droprate=droprate, J_DR = J_DR, J_HE = J_HE, J_LE = J_LE, J = res_J, nmi = nmi, sigma = sigma, beta = beta, 
              W = W, V = V, H = H, Dc = Dc, Dg = Dg, drop_id = drop_id, S = S, dw = dw, weight = alpha, time = time)  
-  
+
   return(res)
 
 }
